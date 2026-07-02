@@ -22,6 +22,38 @@ try:
 except ImportError:
     print("[INFO] OpenCV (cv2) no está instalado. El script funcionará únicamente por línea de comandos.")
 
+def evaluar_estabilidad(accel_data, gyro_data, umbral_giro=0.08, umbral_accel=0.20, g_referencia=9.81):
+    """
+    Evalúa si la cámara está inmóvil (ESTABLE) o moviéndose/vibrando (INESTABLE).
+    
+    Parámetros:
+    - accel_data: Datos del acelerómetro en m/s^2 (objeto con x, y, z).
+    - gyro_data: Datos del giroscopio en rad/s (objeto con x, y, z).
+    - umbral_giro: Velocidad angular máxima permitida para ser 'estable'.
+    - umbral_accel: Variación máxima de aceleración lineal respecto a la gravedad.
+    - g_referencia: Gravedad local de referencia (9.81 m/s^2 por defecto).
+    
+    Retorna:
+    - bool: True si está ESTABLE, False si es INESTABLE.
+    - float: Magnitud de rotación angular medida (en rad/s).
+    - float: Desviación de la aceleración respecto a la gravedad terrestre.
+    """
+    # 1. Rotación: Calcular la magnitud total del vector de velocidad angular (giroscopio)
+    # Magnitud = sqrt(x^2 + y^2 + z^2)
+    gyro_magnitude = (gyro_data.x**2 + gyro_data.y**2 + gyro_data.z**2) ** 0.5
+    
+    # 2. Aceleración/Vibración: Calcular la magnitud del vector de aceleración
+    accel_magnitude = (accel_data.x**2 + accel_data.y**2 + accel_data.z**2) ** 0.5
+    
+    # Desviación de la aceleración lineal respecto a la fuerza de gravedad constante (9.81 m/s^2)
+    # Si la cámara está quieta, la magnitud de la aceleración debe ser exactamente igual a la gravedad.
+    accel_deviation = abs(accel_magnitude - g_referencia)
+    
+    # 3. Clasificación: Está estable si rotación y vibración están bajo los umbrales
+    esta_estable = (gyro_magnitude < umbral_giro) and (accel_deviation < umbral_accel)
+    
+    return esta_estable, gyro_magnitude, accel_deviation
+
 def main():
     # 1. Crear el contexto e interrogar a los dispositivos conectados
     ctx = rs.context()
@@ -157,8 +189,22 @@ def main():
                 accel_data = accel_frame.as_motion_frame().get_motion_data()
                 gyro_data = gyro_frame.as_motion_frame().get_motion_data()
                 
-                print(f"[IMU] Acelerómetro (m/s^2): X={accel_data.x:6.2f}, Y={accel_data.y:6.2f}, Z={accel_data.z:6.2f} | "
-                      f"Giroscopio (rad/s): X={gyro_data.x:6.2f}, Y={gyro_data.y:6.2f}, Z={gyro_data.z:6.2f}")
+                # CONFIGURACIÓN DE UMBRALES DE ESTABILIDAD
+                # - umbral_giro (rad/s): Sensibilidad a la rotación. Menos es más estricto.
+                # - umbral_accel (m/s^2): Sensibilidad a la traslación y vibración lineal.
+                umbral_giro = 0.08
+                umbral_accel = 0.20
+                
+                estable, g_mag, a_dev = evaluar_estabilidad(accel_data, gyro_data, umbral_giro, umbral_accel)
+                
+                # Colores ANSI para la consola (Verde = Estable, Rojo = Inestable)
+                color_code = "\033[92m" if estable else "\033[91m"
+                reset_code = "\033[0m"
+                estado_texto = "ESTABLE" if estable else "INESTABLE"
+                
+                print(f"[IMU] {color_code}{estado_texto:<9}{reset_code} | "
+                      f"Rotación: {g_mag:.3f} rad/s (Umbral: <{umbral_giro}) | "
+                      f"Vibración: {a_dev:.3f} m/s^2 (Umbral: <{umbral_accel})")
             
             # Pequeño retardo para no saturar la consola en exceso
             time.sleep(0.1)
