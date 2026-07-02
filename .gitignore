@@ -1,0 +1,4 @@
+﻿CameraSuite/
+*.pyd
+*.dll
+*.lib
